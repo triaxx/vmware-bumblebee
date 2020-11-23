@@ -19,7 +19,11 @@
 
 gVers="2.2"
 #set this value appropriate for your laptop, and report updates and OS type to github or @docsmooth
-ACADAPTER="/sys/class/power_supply/AC*"
+if [ -d /sys/class/power_supply/AC* ]; then
+    ACADAPTER="/sys/class/power_supply/AC*"
+else
+    ACADAPTER="/sys/class/power_supply/ADP*"
+fi
 BATTERY="/sys/class/power_supply/BAT*"
 
 # The default 3D method - autodetection, forced off, or forced on:
@@ -60,11 +64,11 @@ if [ $? -eq 0 ]; then
     exit 1
 fi
 
-if [ -x "`which gksudo`" ]; then
-    SUDO="`which gksudo` -k"
-elif [ -x "`which gksu`" ]; then
-    SUDO="`which gksu` -S -k"
-elif [ -x "`which kdesudo`" ]; then
+if [ -x "$(which gksudo 2>/dev/null)" ]; then
+    SUDO="$(which gksudo) -k"
+elif [ -x "$(which gksu 2>/dev/null)" ]; then
+    SUDO="$(which gksu) -S -k"
+elif [ -x "$(which kdesudo 2>/dev/null)" ]; then
     echo "WARNING: kdesudo doesn't support a '--preserve-environment' flag, please install gksu. Using 'sudo -E', which requires a working terminal."
     SUDO="sudo -E"
 else
@@ -80,22 +84,22 @@ determineos() {
     # This function needs to be duplicated into the installvmx_script() function
     # below, any time it's changed.  That's the only reason it exists as a function:
     # to delineate what needs to be duplicated into the installvmx_script()
-    ARCH=`uname -p`
+    ARCH=$(uname -p)
     if [ "$ARCH" = "unknown" ]; then
-        ARCH=`uname -m`
+        ARCH=$(uname -m)
     fi
     if [ "$ARCH" = "unknown" ]; then
-        ARCH=`uname -i`
+        ARCH=$(uname -i)
     fi
-    if [  `which dpkg` ]; then
+    if [ $(which dpkg 2>/dev/null) ]; then
         OStype="deb"
-        if [ `grep -c -i "ubuntu" /etc/os-release` -gt 0 ]; then
+        if [ "0$(grep -c -i "ubuntu" /etc/os-release 2>/dev/null)" -gt 0 ]; then
             DISTRO="ubuntu"
             LIB32="/lib32"
             ULIB32="/usr/lib32"
             LIB64="/lib"
             ULIB64="/usr/lib"
-        elif grep -q "debian" /etc/os-release; then
+        elif grep -q "debian" /etc/os-release 2>/dev/null; then
             DISTRO="debian"
             LIB32="/lib/i386-linux-gnu"
             ULIB32="/usr/lib/i386-linux-gnu"
@@ -103,9 +107,9 @@ determineos() {
             ULIB64="/usr/lib/x86_64-linux-gnu/"
         fi
         #Fill in Debian/Mint info here
-    elif [ `which rpm` ]; then
+    elif [ $(which rpm 2>/dev/null) ]; then
         OStype="rpm"
-        if [ `grep -c -i "fedora" /etc/redhat-release` -gt 0 ]; then #corrected for fedora 21
+        if [ "0$(grep -c -i "fedora" /etc/redhat-release 2>/dev/null)" -gt 0 ]; then #corrected for fedora 21
             DISTRO="fedora"
             LIB32="/lib"
             ULIB32="/usr/lib"
@@ -117,27 +121,28 @@ determineos() {
             ULIB32="/usr/lib"
             LIB64="/lib64"
             ULIB64="/usr/lib64"
-        elif [ `grep -c -i "opensuse" /etc/os-release` -gt 0 ]; then
+        elif [ "0$(grep -c -i "opensuse" /etc/os-release 2>/dev/null)" -gt 0 ]; then
             DISTRO="opensuse"
             LIB32="/lib"
             ULIB32="/usr/lib"
             LIB64="/lib64"
             ULIB64="/usr/lib64"
         fi
-    elif [ `which pacman` ]; then
+    elif [ $(which pacman 2>/dev/null) ]; then
         OStype="arch"
-         if [ `grep -c -i "arch linux" /etc/lsb-release` -gt 0 ]; then
-             DISTRO="arch"
-             LIB32="/lib32"
-             ULIB32="/usr/lib32"
-             LIB64="/lib"
-             ULIB64="/usr/lib"
-         elif [ `grep -c -i "manjaro" /etc/lsb-release` -gt 0 ]; then
-             DISTRO="manjaro"
-             LIB32="/lib32"
-             ULIB32="/usr/lib32"
-             LIB64="/lib"
-             ULIB64="/usr/lib"
+        if [ "0$(grep -c -i "arch linux" /etc/lsb-release 2>/dev/null)" -gt 0 ] ||
+            [ "0$(grep -c -i "arch linux" /etc/os-release 2>/dev/null)" -gt 0 ]; then
+            DISTRO="arch"
+            LIB32="/lib32"
+            ULIB32="/usr/lib32"
+            LIB64="/lib"
+            ULIB64="/usr/lib"
+        elif [ "0$(grep -c -i "manjaro" /etc/lsb-release 2>/dev/null)" -gt 0 ]; then
+            DISTRO="manjaro"
+            LIB32="/lib32"
+            ULIB32="/usr/lib32"
+            LIB64="/lib"
+            ULIB64="/usr/lib"
         fi
     fi
     NVIDIA_DEST32="${ULIB32}"
@@ -332,49 +337,49 @@ else
 fi
 
 EOF
-    if [ $? -ne 0 ]; then
-        echo "There was an error installing the updated vmware-vmx file!  Backing out!"
-        removevmx_script
-        exit 16
-    fi
-    chmod u+s,a+x ${ULIB}/vmware/bin/vmware-vmx
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Could not set permissions properly, please run:"
-        echo "chmod u+s,a+x ${ULIB}/vmware/bin/vmware-vmx"
-        exit 16 
-    fi
-    # now to edit the /usr/bin/vmware script to also use primusrun, if requested...
-    backup_file "ASCII" $VMware
-    sed -e 's/exec/exec \$\{bbrun}/g' ${VMware}.real > $VMware
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Couldn't replace 'exec' with 'exec \$bbrun' in \$VMware"
-        exit 16
-    fi
-    chmod 755 $VMware
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Couldn't fix permissions  in $VMware"
-        exit 16
-    fi
-    chown root:root $VMware
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Couldn't fix owner in $VMware"
-        exit 16
-    fi
-    exit 0
+if [ $? -ne 0 ]; then
+    echo "There was an error installing the updated vmware-vmx file!  Backing out!"
+    removevmx_script
+    exit 16
+fi
+chmod u+s,a+x ${ULIB}/vmware/bin/vmware-vmx
+if [ $? -ne 0 ]; then
+    echo "ERROR: Could not set permissions properly, please run:"
+    echo "chmod u+s,a+x ${ULIB}/vmware/bin/vmware-vmx"
+    exit 16 
+fi
+# now to edit the /usr/bin/vmware script to also use primusrun, if requested...
+backup_file "ASCII" $VMware
+sed -e 's/exec/exec \$\{bbrun}/g' ${VMware}.real > $VMware
+if [ $? -ne 0 ]; then
+    echo "ERROR: Couldn't replace 'exec' with 'exec \$bbrun' in \$VMware"
+    exit 16
+fi
+chmod 755 $VMware
+if [ $? -ne 0 ]; then
+    echo "ERROR: Couldn't fix permissions  in $VMware"
+    exit 16
+fi
+chown root:root $VMware
+if [ $? -ne 0 ]; then
+    echo "ERROR: Couldn't fix owner in $VMware"
+    exit 16
+fi
+exit 0
 }
 
 fedora_remove_links() {
-      sudo unlink "/usr/lib64/vmware"
-      sudo unlink "/usr/lib64/vmware-installer"
-      sudo unlink "/usr/lib64/vmware-ovftool"
-      sudo unlink "/usr/lib64/vmware-vix"
+    sudo unlink "/usr/lib64/vmware"
+    sudo unlink "/usr/lib64/vmware-installer"
+    sudo unlink "/usr/lib64/vmware-ovftool"
+    sudo unlink "/usr/lib64/vmware-vix"
 }
 
 fedora_add_links() {
-      sudo ln -s "/usr/lib/vmware" "/usr/lib64/vmware"
-      sudo ln -s "/usr/lib/vmware-installer" "/usr/lib64/vmware-installer"
-      sudo ln -s "/usr/lib/vmware-ovftool" "/usr/lib64/vmware-ovftool"
-      sudo ln -s "/usr/lib/vmware-vix" "/usr/lib64/vmware-vix"
+    sudo ln -s "/usr/lib/vmware" "/usr/lib64/vmware"
+    sudo ln -s "/usr/lib/vmware-installer" "/usr/lib64/vmware-installer"
+    sudo ln -s "/usr/lib/vmware-ovftool" "/usr/lib64/vmware-ovftool"
+    sudo ln -s "/usr/lib/vmware-vix" "/usr/lib64/vmware-vix"
 }
 
 fixlinks() {
@@ -410,8 +415,8 @@ if [ $? -eq 0 ]; then
         if [ $? -eq 0 ]; then
             fixlinks
             if ( [ "${DISTRO}" = "fedora" ] || [ "${DISTRO}" = "opensuse" ] ) && ( [ "${ARCH}" = "x86_64" -o "${ARCH}" = "amd64" ] ); then
-	      fedora_remove_links
-	    fi
+                fedora_remove_links
+            fi
             exit 0
         else
             echo "Some error happened in the removal!"
@@ -427,9 +432,9 @@ fi
 echo $1 | egrep -q -w '(i|install)'
 if [ $? -eq 0 ]; then
     if [ "$USER" = "root" ]; then
-	if ( [ "${DISTRO}" = "fedora" ] || [ "${DISTRO}" = "opensuse" ] ) && ( [ "${ARCH}" = "x86_64" -o "${ARCH}" = "amd64" ] ); then
-	  fedora_add_links
-	fi
+        if ( [ "${DISTRO}" = "fedora" ] || [ "${DISTRO}" = "opensuse" ] ) && ( [ "${ARCH}" = "x86_64" -o "${ARCH}" = "amd64" ] ); then
+            fedora_add_links
+        fi
         installvmx_script
         if [ $? -eq 0 ]; then
             fixlinks
